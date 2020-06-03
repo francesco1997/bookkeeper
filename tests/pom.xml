@@ -33,6 +33,11 @@
       <artifactId>bookkeeper-common-allocator</artifactId>
       <version>${project.version}</version>
     </dependency>
+    <dependency>
+      <groupId>org.apache.bookkeeper</groupId>
+  	  <artifactId>bookkeeper-server</artifactId>
+      <version>${project.version}</version>
+    </dependency>
   </dependencies>
 
   <build>
