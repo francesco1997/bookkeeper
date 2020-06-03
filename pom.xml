@@ -196,6 +196,11 @@
     <puppycrawl.checkstyle.version>6.19</puppycrawl.checkstyle.version>
     <spotbugs-maven-plugin.version>3.1.8</spotbugs-maven-plugin.version>
     <forkCount.variable>1</forkCount.variable>
+    <sonar.projectKey>francesco1997_bookkeeper</sonar.projectKey>
+  	<sonar.links.homepage>https://github.com/francesco1997/bookkeeper</sonar.links.homepage>
+  	<sonar.links.ci>https://travis-ci.org/francesco1997/bookkeeper</sonar.links.ci>
+  	<sonar.links.scm>https://github.com/francesco1997/bookkeeper</sonar.links.scm>
+  	<sonar.links.issue>https://github.com/francesco1997/bookkeeper/issues</sonar.links.issue>
   </properties>
 
   <!-- dependency definitions -->
