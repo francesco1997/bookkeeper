@@ -30,4 +30,7 @@
   <modules>
     <module>java</module>
   </modules>
+  <properties>
+    <sonar.coverage.jacoco.xmlReportPaths>${basedir}/../${aggregate.report.dir}</sonar.coverage.jacoco.xmlReportPaths>
+  </properties>
 </project>

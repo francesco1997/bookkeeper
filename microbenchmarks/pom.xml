@@ -27,6 +27,7 @@
   <url>http://maven.apache.org</url>
   <properties>
     <uberjar.name>benchmarks</uberjar.name>
+    <sonar.coverage.jacoco.xmlReportPaths>${basedir}/../${aggregate.report.dir}</sonar.coverage.jacoco.xmlReportPaths>
   </properties>
   <dependencies>
     <dependency>

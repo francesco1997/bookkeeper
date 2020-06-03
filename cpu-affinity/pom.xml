@@ -30,6 +30,7 @@
 
   <properties>
     <nar.runtime>dynamic</nar.runtime>
+    <sonar.coverage.jacoco.xmlReportPaths>${basedir}/../${aggregate.report.dir}</sonar.coverage.jacoco.xmlReportPaths>
   </properties>
 
   <dependencies>
