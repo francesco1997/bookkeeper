@@ -18,7 +18,7 @@ import java.util.*;
 
 
 @RunWith(value = Parameterized.class)
-public class BufferedChannelTest {
+public class BufferedChannelWriteTest {
 
     private static String dir = "tmp/writeChannelTest";
     private static String fileName = "writeFile.log";
@@ -27,6 +27,8 @@ public class BufferedChannelTest {
     private Integer writeBufSize;
     private Integer buffChanCapacity;
     private Integer initialPos;
+
+    private Long unpersistedBytesBound;
 
     private FileChannel fc;
     private BufferedChannel bufferedChannel;
@@ -37,13 +39,14 @@ public class BufferedChannelTest {
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
 
-    public BufferedChannelTest(TestInput testInput) {
+    public BufferedChannelWriteTest(TestInput testInput) {
         this.isEmptyFile = testInput.isEmptyFile();
         this.writeBufSize = testInput.getWriteBufSize();
         this.buffChanCapacity = testInput.getBuffChanCapacity();
         if (testInput.getExpectedException() != null) {
             this.expectedException.expect(testInput.getExpectedException());
         }
+        this.unpersistedBytesBound = testInput.getUnpersistedBytesBound();
         this.initialPos = 0;
 
     }
@@ -55,19 +58,18 @@ public class BufferedChannelTest {
         List<TestInput> inputs = new ArrayList<>();
 
         // Empty file, writeDim > 0, srcSize = writeDim
-        inputs.add(new TestInput(true, 1, 1, null));
-        inputs.add(new TestInput(true, 1, 2, null));
+        inputs.add(new TestInput(true, 1, 1, 0L,null));
+        inputs.add(new TestInput(true, 3, 4, 3L, null));
         //inputs.add(new TestInput(true, 1,0, IllegalArgumentException.class));
         //inputs.add(new TestInput(true, 0, 0, IllegalArgumentException.class));
-        inputs.add(new TestInput(true, 0, 1, null));
-        inputs.add(new TestInput(true, 3, -1, IllegalArgumentException.class));
-        inputs.add(new TestInput(false, 1, 1, null));
-        inputs.add(new TestInput(false, 1, 2, null));
+        inputs.add(new TestInput(true, 0, 1, 0L,null));
+        inputs.add(new TestInput(true, 3, -1, 0L, IllegalArgumentException.class));
+        inputs.add(new TestInput(false, 1, 1, 0L,null));
+        inputs.add(new TestInput(false, 1, 2, 2L,null));
         //inputs.add(new TestInput(false, 1,0, IllegalArgumentException.class));
         //inputs.add(new TestInput(false, 0, 0, IllegalArgumentException.class));
-        inputs.add(new TestInput(false, 0, 1, null));
-        inputs.add(new TestInput(false, 0, -1, IllegalArgumentException.class));
-
+        inputs.add(new TestInput(false, 0, 1, 0L,null));
+        inputs.add(new TestInput(false, 0, -1, 0L,IllegalArgumentException.class));
 
         return inputs;
     }
@@ -76,14 +78,16 @@ public class BufferedChannelTest {
         private boolean isEmptyFile;
         private Integer writeBufSize;
         private Integer buffChanCapacity;
+        private Long unpersistedBytesBound;
         private Class<? extends Exception> expectedException;
 
 
-        protected TestInput(boolean isEmptyFile, Integer writeBufSize, Integer buffChanCapacity, Class<? extends Exception> expectedException) {
+        protected TestInput(boolean isEmptyFile, Integer writeBufSize, Integer buffChanCapacity, Long unpersistedBytesBound,Class<? extends Exception> expectedException) {
             this.isEmptyFile = isEmptyFile;
             this.writeBufSize = writeBufSize;
             this.buffChanCapacity = buffChanCapacity;
             this.expectedException = expectedException;
+            this.unpersistedBytesBound = unpersistedBytesBound;
 
         }
 
@@ -101,6 +105,10 @@ public class BufferedChannelTest {
 
         public Class<? extends Exception> getExpectedException() {
             return expectedException;
+        }
+
+        public Long getUnpersistedBytesBound() {
+            return unpersistedBytesBound;
         }
     }
 
@@ -166,9 +174,9 @@ public class BufferedChannelTest {
         }
     }
 
-    @Test(timeout=1000)
+    @Test//(timeout=1000)
     public void bufChWrTest() throws Exception {
-        this.bufferedChannel = new BufferedChannel(new UnpooledByteBufAllocator(true), this.fc, this.buffChanCapacity);
+        this.bufferedChannel = new BufferedChannel(new UnpooledByteBufAllocator(true), this.fc, this.buffChanCapacity, this.buffChanCapacity,this.unpersistedBytesBound);
         this.bufferedChannel.write(this.inputBuf);
 
         // Check if the write was made correctly
