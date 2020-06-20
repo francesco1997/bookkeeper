@@ -150,6 +150,7 @@ public class BufferedChannelWriteTest {
             }
 
             this.fc = FileChannel.open(Paths.get(dir, fileName), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+            this.fc.position(this.fc.size());
 
             this.inputBuf = Unpooled.directBuffer();
             this.inputBuf.writeBytes(this.bytes);
