@@ -23,6 +23,7 @@ public class BufferedChannelReadTest {
     private static String dir = "tmp/readChannelTest";
     private static String fileName = "readFile.log";
 
+    private boolean isWriteInFile;
     private Integer fileSize;
     private Integer dataToRead;
     private Integer startIndex;
@@ -37,6 +38,7 @@ public class BufferedChannelReadTest {
     public ExpectedException expectedException = ExpectedException.none();
 
     public BufferedChannelReadTest(TestInput testInput) {
+        this.isWriteInFile = testInput.isWriteInFile();
         this.fileSize = testInput.getFileSize();
         this.dataToRead = testInput.getDataToRead();
         this.startIndex = testInput.getStartIndex();
@@ -59,14 +61,18 @@ public class BufferedChannelReadTest {
             startIndex: {<fileSize}, {=fileSize}, {>fileSize}
             dataToRead: {<fileSize - startIndex}, {=fileSize - startIndex}, {>fileSize - startIndex}
          */
-        inputs.add(new TestInput(1,0,2,-1, IllegalArgumentException.class));
-        inputs.add(new TestInput(0,0,0,0, null));
-        inputs.add(new TestInput(2,1,0,1, null));
+        inputs.add(new TestInput(true,1,0,2,-1, IllegalArgumentException.class));
+        inputs.add(new TestInput(true,0,0,0,0, null));
+        inputs.add(new TestInput(true,2,1,0,1, null));
+        inputs.add(new TestInput(false,5,1,0,1, null));
+        inputs.add(new TestInput(false,5,6,0,1, IOException.class));
+        inputs.add(new TestInput(false,5,1,3,6, null));
 
         return inputs;
     }
 
     private static class TestInput {
+        private boolean writeInFile;
         private Integer fileSize;
         private Integer dataToRead;
         private Integer startIndex;
@@ -74,13 +80,18 @@ public class BufferedChannelReadTest {
         private Class<? extends Exception> expectedException;
 
 
-        protected TestInput(Integer fileSize, Integer dataToRead, Integer startIndex, Integer buffChanCapacity, Class<? extends Exception> expectedException) {
+        protected TestInput(boolean writeInFile, Integer fileSize, Integer dataToRead, Integer startIndex, Integer buffChanCapacity, Class<? extends Exception> expectedException) {
+            this.writeInFile = writeInFile;
             this.fileSize = fileSize;
             this.dataToRead = dataToRead;
             this.startIndex = startIndex;
             this.buffChanCapacity = buffChanCapacity;
             this.expectedException = expectedException;
 
+        }
+
+        public boolean isWriteInFile() {
+            return writeInFile;
         }
 
         public Integer getFileSize() {
@@ -127,16 +138,15 @@ public class BufferedChannelReadTest {
     @Before
     public void setup() throws IOException {
         Random rd = new Random();
-
-        try (FileOutputStream fos = new FileOutputStream(dir + "/" + fileName)) {
-            this.bytes = new byte[this.fileSize];
-            rd.nextBytes(this.bytes);
-
-            fos.write(this.bytes);
-        } catch (IOException ioException) {
-            ioException.printStackTrace();
+        this.bytes = new byte[this.fileSize];
+        rd.nextBytes(this.bytes);
+        if (this.isWriteInFile) {
+            try (FileOutputStream fos = new FileOutputStream(dir + "/" + fileName)) {
+                fos.write(this.bytes);
+            } catch (IOException ioException) {
+                ioException.printStackTrace();
+            }
         }
-
         this.fc = FileChannel.open(Paths.get(dir, fileName), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
         this.fc.position(this.fc.size());
 
@@ -161,12 +171,19 @@ public class BufferedChannelReadTest {
     public void bufChWrTest() throws Exception {
         ByteBuf readBuf = Unpooled.buffer();
         this.bufferedChannel = new BufferedChannel(new UnpooledByteBufAllocator(true), this.fc, this.buffChanCapacity);
-        Integer numReadBytes = this.bufferedChannel.read(readBuf, this.startIndex, this.dataToRead);
+
+        if (!this.isWriteInFile) {
+            ByteBuf writeBuf = Unpooled.buffer();
+            writeBuf.writeBytes(this.bytes);
+            this.bufferedChannel.write(writeBuf);
+        }
+
+        Integer numReadBytes = this.bufferedChannel.read(readBuf, this.startIndex, this.dataToRead); // Errore: non tiene conto della length messa in input
 
         Integer numReadBytesExpected = 0;
         byte[] expectedBytes = new byte[0];
-        if (this.startIndex <= this.fc.size()) {
-            numReadBytesExpected =  ( this.fc.size() - this.startIndex >= this.dataToRead) ?  this.dataToRead : (int) this.fc.size() - this.startIndex - this.dataToRead;
+        if (this.startIndex <= this.bytes.length) {
+            numReadBytesExpected =  ( this.bytes.length - this.startIndex >= this.dataToRead) ?  this.dataToRead : this.bytes.length - this.startIndex - this.dataToRead;
             if (this.dataToRead > 0) {
                 expectedBytes = Arrays.copyOfRange(this.bytes, this.startIndex, this.startIndex + numReadBytesExpected);
             }

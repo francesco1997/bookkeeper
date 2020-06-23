@@ -60,14 +60,14 @@ public class BufferedChannelWriteTest {
         // Empty file, writeDim > 0, srcSize = writeDim
         inputs.add(new TestInput(true, 1, 1, 0L,null));
         inputs.add(new TestInput(true, 3, 4, 3L, null));
-        //inputs.add(new TestInput(true, 1,0, IllegalArgumentException.class));
-        //inputs.add(new TestInput(true, 0, 0, IllegalArgumentException.class));
+        inputs.add(new TestInput(true, 1,0, 0L, IllegalArgumentException.class));
+        inputs.add(new TestInput(true, 0, 0, 0L, IllegalArgumentException.class));
         inputs.add(new TestInput(true, 0, 1, 0L,null));
         inputs.add(new TestInput(true, 3, -1, 0L, IllegalArgumentException.class));
         inputs.add(new TestInput(false, 1, 1, 0L,null));
         inputs.add(new TestInput(false, 1, 2, 2L,null));
-        //inputs.add(new TestInput(false, 1,0, IllegalArgumentException.class));
-        //inputs.add(new TestInput(false, 0, 0, IllegalArgumentException.class));
+        inputs.add(new TestInput(false, 1,0, 0L, IllegalArgumentException.class));
+        inputs.add(new TestInput(false, 0, 0, 0L, IllegalArgumentException.class));
         inputs.add(new TestInput(false, 0, 1, 0L,null));
         inputs.add(new TestInput(false, 0, -1, 0L,IllegalArgumentException.class));
 
@@ -175,7 +175,7 @@ public class BufferedChannelWriteTest {
         }
     }
 
-    @Test//(timeout=1000)
+    @Test(timeout=1000)
     public void bufChWrTest() throws Exception {
         this.bufferedChannel = new BufferedChannel(new UnpooledByteBufAllocator(true), this.fc, this.buffChanCapacity, this.buffChanCapacity,this.unpersistedBytesBound);
         this.bufferedChannel.write(this.inputBuf);
