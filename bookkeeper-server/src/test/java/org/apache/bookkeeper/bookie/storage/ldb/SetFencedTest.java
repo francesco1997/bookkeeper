@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
 @RunWith(Parameterized.class)
@@ -28,6 +29,9 @@ public class SetFencedTest {
     private LedgerMetadataIndex ledgerMetadataIndex;
     private Long ledgerId;
     private boolean exist;
+    private boolean fenced;
+    private boolean concurrency;
+
     private DbLedgerStorageDataFormats.LedgerData ledgerData;
     private byte[] ledgerIdByte;
 
@@ -45,12 +49,13 @@ public class SetFencedTest {
     public SetFencedTest(TestInput testInput) {
         this.ledgerId = testInput.getLedgerId();
         this.exist = testInput.isExist();
+        this.fenced = testInput.isFenced();
+        this.concurrency = testInput.isConcurrent();
         Class<? extends Exception> expectedException = testInput.getExpectedException();
         if (expectedException != null) {
             this.expectedException.expect(expectedException);
         }
     }
-
 
     private class FakeKeyValueStorageFactory implements KeyValueStorageFactory {
         private KeyValueStorage keyValueStorage;
@@ -95,7 +100,7 @@ public class SetFencedTest {
         this.ledgerDataMap = new HashMap<>();
 
         if (this.exist) {
-            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(false).setMasterKey(ByteString.EMPTY).build();
+            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(this.fenced).setMasterKey(ByteString.EMPTY).build();
             ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
             buffer.putLong(this.ledgerId);
             this.ledgerIdByte = buffer.array();
@@ -104,8 +109,8 @@ public class SetFencedTest {
 
         FakeClosableIterator<Map.Entry<byte[], byte[]>> fakeClosableIterator = new FakeClosableIterator<>(ledgerDataMap.entrySet().iterator());
         when(keyValueStorage.iterator()).thenReturn(fakeClosableIterator);
-    }
 
+    }
 
     @Parameterized.Parameters
     public static Collection<TestInput> getTestParameters() {
@@ -116,9 +121,10 @@ public class SetFencedTest {
             exist: {true}, {false}
             masterKey: {valid}, {empty}
          */
-        inputs.add(new TestInput((long) -1, false, Bookie.NoLedgerException.class));
-        inputs.add(new TestInput((long) 0, true, null));
-        inputs.add(new TestInput((long) 1, true,  null));
+        inputs.add(new TestInput((long) -1, false, false, false, Bookie.NoLedgerException.class));
+        inputs.add(new TestInput((long) 0, true, true, false, null));
+        inputs.add(new TestInput((long) 1, true,  false,true,null));
+        inputs.add(new TestInput((long) 1, true,  false,false,null));
 
         return inputs;
     }
@@ -126,12 +132,16 @@ public class SetFencedTest {
     private static class TestInput {
         private Long ledgerId;
         private boolean exist;
+        private boolean fenced;
+        private boolean concurrent;
         private Class<? extends Exception> expectedException;
 
 
-        public TestInput(Long ledgerId, boolean exist, Class<? extends Exception> expectedException) {
+        public TestInput(Long ledgerId, boolean exist, boolean fenced, boolean concurrent, Class<? extends Exception> expectedException) {
             this.ledgerId = ledgerId;
             this.exist = exist;
+            this.fenced = fenced;
+            this.concurrent = concurrent;
             this.expectedException = expectedException;
         }
 
@@ -143,6 +153,13 @@ public class SetFencedTest {
             return exist;
         }
 
+        public boolean isFenced() {
+            return fenced;
+        }
+
+        public boolean isConcurrent() {
+            return concurrent;
+        }
 
         public Class<? extends Exception> getExpectedException() {
             return expectedException;
@@ -150,15 +167,26 @@ public class SetFencedTest {
     }
 
     @Test
-    public void setMasterKeyTest() throws Exception {
+    public void setFencedTest() throws Exception {
         this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), this.fakeKeyValueStorageFactory, "fakePath", new NullStatsLogger());
-        this.ledgerMetadataIndex.setFenced(this.ledgerId);
+
+        if (this.concurrency) {
+            this.ledgerMetadataIndex = spy(this.ledgerMetadataIndex);
+            when(this.ledgerMetadataIndex.get(this.ledgerId)).then(invocation -> {
+                DbLedgerStorageDataFormats.LedgerData ledgerData = (DbLedgerStorageDataFormats.LedgerData) invocation.callRealMethod();
+                this.ledgerMetadataIndex.delete(this.ledgerId);
+                return ledgerData;
+            });
+        }
+
+        boolean returnValue = this.ledgerMetadataIndex.setFenced(this.ledgerId);
 
         DbLedgerStorageDataFormats.LedgerData actualLedgerData = this.ledgerMetadataIndex.get(this.ledgerId);
 
         Assert.assertNotNull(actualLedgerData);
 
-        Assert.assertTrue(actualLedgerData.getFenced());
+        Assert.assertTrue((!this.fenced && returnValue) || (!returnValue && this.fenced));
 
+        Assert.assertTrue(actualLedgerData.getFenced());
     }
 }
