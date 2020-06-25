@@ -1,7 +1,6 @@
 package org.apache.bookkeeper.bookie.storage.ldb;
 
 import com.google.protobuf.ByteString;
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.junit.Assert;
@@ -19,18 +18,15 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @RunWith(Parameterized.class)
-public class SetFencedTest {
-
+public class SetLedgerMetadataTest {
     private Map<byte[], byte[]> ledgerDataMap;
     private LedgerMetadataIndex ledgerMetadataIndex;
     private Long ledgerId;
     private boolean exist;
-    private boolean fenced;
-    private boolean concurrency;
-
     private DbLedgerStorageDataFormats.LedgerData ledgerData;
     private byte[] ledgerIdByte;
 
@@ -45,11 +41,10 @@ public class SetFencedTest {
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
 
-    public SetFencedTest(TestInput testInput) {
+    public SetLedgerMetadataTest(TestInput testInput) {
         this.ledgerId = testInput.getLedgerId();
         this.exist = testInput.isExist();
-        this.fenced = testInput.isFenced();
-        this.concurrency = testInput.isConcurrent();
+        this.ledgerData = testInput.getLedgerData();
         Class<? extends Exception> expectedException = testInput.getExpectedException();
         if (expectedException != null) {
             this.expectedException.expect(expectedException);
@@ -97,19 +92,19 @@ public class SetFencedTest {
     public void configureMock() throws IOException {
         this.fakeKeyValueStorageFactory = new FakeKeyValueStorageFactory(this.keyValueStorage);
         this.ledgerDataMap = new HashMap<>();
+        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+        buffer.putLong(this.ledgerId);
+        this.ledgerIdByte = buffer.array();
 
         if (this.exist) {
-            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(this.fenced).setMasterKey(ByteString.EMPTY).build();
-            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-            buffer.putLong(this.ledgerId);
-            this.ledgerIdByte = buffer.array();
+            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(false).setMasterKey(ByteString.EMPTY).build();
             this.ledgerDataMap.put(ledgerIdByte, ledgerData.toByteArray());
         }
 
         FakeClosableIterator<Map.Entry<byte[], byte[]>> fakeClosableIterator = new FakeClosableIterator<>(ledgerDataMap.entrySet().iterator());
         when(keyValueStorage.iterator()).thenReturn(fakeClosableIterator);
-
     }
+
 
     @Parameterized.Parameters
     public static Collection<TestInput> getTestParameters() {
@@ -120,10 +115,26 @@ public class SetFencedTest {
             exist: {true}, {false}
             masterKey: {valid}, {empty}
          */
-        inputs.add(new TestInput((long) -1, false, false, false, Bookie.NoLedgerException.class));
-        inputs.add(new TestInput((long) 0, true, true, false, null));
-        inputs.add(new TestInput((long) 1, true,  false,true,null));
-        inputs.add(new TestInput((long) 1, true,  false,false,null));
+        inputs.add(new TestInput((long) -1, false, null, NullPointerException.class));
+        inputs.add(new TestInput(
+                (long) 0,
+                true,
+                DbLedgerStorageDataFormats.LedgerData.newBuilder()
+                        .setExists(true)
+                        .setFenced(false)
+                        .setMasterKey(ByteString.copyFrom("prova".getBytes()))
+                        .build(),
+                null));
+        inputs.add(new TestInput(
+                (long) 1,
+                false,
+                DbLedgerStorageDataFormats.LedgerData.newBuilder()
+                        .setExists(true)
+                        .setFenced(false)
+                        .setMasterKey(ByteString.copyFrom("prova".getBytes()))
+                        .build(),
+                null));
+
 
         return inputs;
     }
@@ -131,17 +142,15 @@ public class SetFencedTest {
     private static class TestInput {
         private Long ledgerId;
         private boolean exist;
-        private boolean fenced;
-        private boolean concurrent;
+        private DbLedgerStorageDataFormats.LedgerData ledgerData;
         private Class<? extends Exception> expectedException;
 
-
-        public TestInput(Long ledgerId, boolean exist, boolean fenced, boolean concurrent, Class<? extends Exception> expectedException) {
+        public TestInput(Long ledgerId, boolean exist, DbLedgerStorageDataFormats.LedgerData ledgerData, Class<? extends Exception> expectedException) {
             this.ledgerId = ledgerId;
             this.exist = exist;
-            this.fenced = fenced;
-            this.concurrent = concurrent;
+            this.ledgerData = ledgerData;
             this.expectedException = expectedException;
+
         }
 
         public Long getLedgerId() {
@@ -152,12 +161,8 @@ public class SetFencedTest {
             return exist;
         }
 
-        public boolean isFenced() {
-            return fenced;
-        }
-
-        public boolean isConcurrent() {
-            return concurrent;
+        public DbLedgerStorageDataFormats.LedgerData getLedgerData() {
+            return ledgerData;
         }
 
         public Class<? extends Exception> getExpectedException() {
@@ -166,37 +171,16 @@ public class SetFencedTest {
     }
 
     @Test
-    public void setFencedTest() throws Exception {
+    public void setLedgerMetadataTest() throws Exception {
         this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), this.fakeKeyValueStorageFactory, "fakePath", new NullStatsLogger());
-
-        if (this.concurrency) {
-            this.ledgerMetadataIndex = spy(this.ledgerMetadataIndex);
-            when(this.ledgerMetadataIndex.get(this.ledgerId)).then(invocation -> {
-                DbLedgerStorageDataFormats.LedgerData ledgerData = (DbLedgerStorageDataFormats.LedgerData) invocation.callRealMethod();
-                this.ledgerMetadataIndex.delete(this.ledgerId);
-                return ledgerData;
-            });
-        }
-
-        boolean returnValue = this.ledgerMetadataIndex.setFenced(this.ledgerId);
+        this.ledgerMetadataIndex.set(this.ledgerId, this.ledgerData);
 
         this.ledgerMetadataIndex.flush();
 
         DbLedgerStorageDataFormats.LedgerData actualLedgerData = this.ledgerMetadataIndex.get(this.ledgerId);
 
-        Assert.assertNotNull(actualLedgerData);
+        Assert.assertEquals(Arrays.toString(this.ledgerData.toByteArray()), Arrays.toString(actualLedgerData.toByteArray()));
 
-        Assert.assertTrue((!this.fenced && returnValue) || (!returnValue && this.fenced));
-
-        Assert.assertTrue(actualLedgerData.getFenced());
-
-        if (returnValue) {
-            DbLedgerStorageDataFormats.LedgerData expectedLedgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(true).setMasterKey(ByteString.EMPTY).build();
-            verify(this.keyValueStorage).put(this.ledgerIdByte, expectedLedgerData.toByteArray());
-        } else {
-            verify(this.keyValueStorage, never()).put(any(), any());
-        }
-
-
+        verify(this.keyValueStorage).put(this.ledgerIdByte, this.ledgerData.toByteArray());
     }
 }

@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @RunWith(Parameterized.class)
@@ -28,7 +29,6 @@ public class SetMasterKeyTest {
     private Long ledgerId;
     private boolean exist;
     private byte[] insertingMasterKey;
-    private DbLedgerStorageDataFormats.LedgerData ledgerData;
     private byte[] ledgerIdByte;
     private byte[] previousMasterKey;
 
@@ -96,17 +96,19 @@ public class SetMasterKeyTest {
     public void configureMock() throws IOException {
         this.fakeKeyValueStorageFactory = new FakeKeyValueStorageFactory(this.keyValueStorage);
         this.ledgerDataMap = new HashMap<>();
+        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+        buffer.putLong(this.ledgerId);
+        this.ledgerIdByte = buffer.array();
 
         if (this.exist) {
-            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(true).setMasterKey(ByteString.copyFrom(this.previousMasterKey)).build();
-            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-            buffer.putLong(this.ledgerId);
-            this.ledgerIdByte = buffer.array();
+            DbLedgerStorageDataFormats.LedgerData ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(false).setMasterKey(ByteString.copyFrom(this.previousMasterKey)).build();
+
             this.ledgerDataMap.put(ledgerIdByte, ledgerData.toByteArray());
         }
 
         FakeClosableIterator<Map.Entry<byte[], byte[]>> fakeClosableIterator = new FakeClosableIterator<>(ledgerDataMap.entrySet().iterator());
         when(keyValueStorage.iterator()).thenReturn(fakeClosableIterator);
+
     }
 
 
@@ -170,8 +172,8 @@ public class SetMasterKeyTest {
     @Test
     public void setMasterKeyTest() throws Exception {
         this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), this.fakeKeyValueStorageFactory, "fakePath", new NullStatsLogger());
-        ledgerMetadataIndex.setMasterKey(this.ledgerId, this.insertingMasterKey);
-
+        this.ledgerMetadataIndex.setMasterKey(this.ledgerId, this.insertingMasterKey);
+        this.ledgerMetadataIndex.flush();
 
         DbLedgerStorageDataFormats.LedgerData actualLedgerData = this.ledgerMetadataIndex.get(this.ledgerId);
 
@@ -180,10 +182,22 @@ public class SetMasterKeyTest {
         String newMasterKey = Arrays.toString(this.insertingMasterKey);
         String oldMasterKey = Arrays.toString(this.previousMasterKey);
 
-        String expectedMasterKey = (this.previousMasterKey.length == 0 || oldMasterKey.equals(newMasterKey)) ? newMasterKey : oldMasterKey;
+        String expectedMasterKey = null;
+        byte[] expectedMasterKeyBytes = null;
+        if (this.previousMasterKey.length == 0 || oldMasterKey.equals(newMasterKey)) {
+            expectedMasterKey = newMasterKey;
+            expectedMasterKeyBytes = this.insertingMasterKey;
+        } else {
+            expectedMasterKey = oldMasterKey;
+            expectedMasterKeyBytes = this.previousMasterKey;
+        }
 
 
         Assert.assertEquals(expectedMasterKey, Arrays.toString(actualLedgerData.getMasterKey().toByteArray()));
+
+        DbLedgerStorageDataFormats.LedgerData expectedLegerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(false).setMasterKey(ByteString.copyFrom(expectedMasterKeyBytes)).build();
+        verify(this.keyValueStorage).put(this.ledgerIdByte, expectedLegerData.toByteArray());
+
 
     }
 }
