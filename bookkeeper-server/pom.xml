@@ -207,6 +207,9 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${maven-surefire-plugin.version}</version>
+        <configuration>
+          <testFailureIgnore>true</testFailureIgnore>
+        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -271,6 +274,47 @@
       </build>
     </profile>
     <!-- test profiles -->
+    <profile>
+      <id>pit-test</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>1.5.2</version>
+            <configuration>
+              <targetClasses>
+                <param>org.apache.bookkeeper.bookie.BufferedChannel</param>
+                <param>org.apache.bookkeeper.bookie.storage.ldb.LedgerMetadataIndex</param>
+              </targetClasses>
+              <targetTests>
+                  <param>org.apache.bookkeeper.bookie.BufferedChannelReadTest</param>
+                  <param>org.apache.bookkeeper.bookie.BufferedChannelWriteTest</param>
+                  <param>org.apache.bookkeeper.bookie.storage.ldb.SetFencedTest</param>
+                  <param>org.apache.bookkeeper.bookie.storage.ldb.SetLedgerMetadataTest</param>
+                  <param>org.apache.bookkeeper.bookie.storage.ldb.SetMasterKeyTest</param>
+                  <param>org.apache.bookkeeper.bookie.storage.ldb.GetLedgerMetadataTest</param>
+                  <param>org.apache.bookkeeper.bookie.storage.ldb.DeleteLedgerMetadataTest</param>
+              </targetTests>
+              <avoidCallsTo>
+                <avoidCallsTo>java.util.logging</avoidCallsTo>
+                <avoidCallsTo>org.apache.log4j</avoidCallsTo>
+                <avoidCallsTo>org.slf4j</avoidCallsTo>
+                <avoidCallsTo>org.apache.commons.logging</avoidCallsTo>
+              </avoidCallsTo>
+            </configuration>
+            <executions>
+              <execution>
+                <id>mutuation-coverage</id>
+                <goals>
+                  <goal>mutationCoverage</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
   <properties>
     <sonar.coverage.jacoco.xmlReportPaths>${basedir}/../${aggregate.report.dir}</sonar.coverage.jacoco.xmlReportPaths>
