@@ -10,21 +10,16 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnit;
-import org.mockito.junit.MockitoRule;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @RunWith(Parameterized.class)
-public class SetMasterKeyTest {
+public class SetMasterKeyTest extends LedgerMetadataInitialization{
 
-    private Map<byte[], byte[]> ledgerDataMap;
     private LedgerMetadataIndex ledgerMetadataIndex;
     private Long ledgerId;
     private boolean exist;
@@ -32,18 +27,11 @@ public class SetMasterKeyTest {
     private byte[] ledgerIdByte;
     private byte[] previousMasterKey;
 
-    private FakeKeyValueStorageFactory fakeKeyValueStorageFactory;
-
-    @Mock
-    private KeyValueStorage keyValueStorage;
-
-    @Rule
-    public MockitoRule mockitoRule = MockitoJUnit.rule();
-
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
 
     public SetMasterKeyTest(TestInput testInput) {
+        super(testInput.isExist());
         this.ledgerId = testInput.getLedgerId();
         this.exist = testInput.isExist();
         this.insertingMasterKey = testInput.getMasterKey();
@@ -53,64 +41,6 @@ public class SetMasterKeyTest {
             this.expectedException.expect(expectedException);
         }
     }
-
-
-    private class FakeKeyValueStorageFactory implements KeyValueStorageFactory {
-        private KeyValueStorage keyValueStorage;
-
-        public FakeKeyValueStorageFactory(KeyValueStorage keyValueStorage) {
-            this.keyValueStorage = keyValueStorage;
-        }
-
-        @Override
-        public KeyValueStorage newKeyValueStorage(String path, DbConfigType dbConfigType, ServerConfiguration conf) throws IOException {
-            return this.keyValueStorage;
-        }
-    }
-
-    private class FakeClosableIterator<T> implements KeyValueStorage.CloseableIterator<T> {
-
-        private Iterator<T> iterator;
-
-        public FakeClosableIterator(Iterator<T> iterator) {
-            this.iterator = iterator;
-        }
-
-        @Override
-        public boolean hasNext() throws IOException {
-            return this.iterator.hasNext();
-        }
-
-        @Override
-        public T next() throws IOException {
-            return this.iterator.next();
-        }
-
-        @Override
-        public void close() throws IOException {
-
-        }
-    }
-
-    @Before
-    public void configureMock() throws IOException {
-        this.fakeKeyValueStorageFactory = new FakeKeyValueStorageFactory(this.keyValueStorage);
-        this.ledgerDataMap = new HashMap<>();
-        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-        buffer.putLong(this.ledgerId);
-        this.ledgerIdByte = buffer.array();
-
-        if (this.exist) {
-            DbLedgerStorageDataFormats.LedgerData ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(false).setMasterKey(ByteString.copyFrom(this.previousMasterKey)).build();
-
-            this.ledgerDataMap.put(ledgerIdByte, ledgerData.toByteArray());
-        }
-
-        FakeClosableIterator<Map.Entry<byte[], byte[]>> fakeClosableIterator = new FakeClosableIterator<>(ledgerDataMap.entrySet().iterator());
-        when(keyValueStorage.iterator()).thenReturn(fakeClosableIterator);
-
-    }
-
 
     @Parameterized.Parameters
     public static Collection<TestInput> getTestParameters() {
@@ -169,9 +99,25 @@ public class SetMasterKeyTest {
         }
     }
 
+    @Before
+    public void setup() throws IOException {
+        Map<byte[], byte[]> ledgerDataMap = new HashMap<>();
+        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+        buffer.putLong(this.ledgerId);
+        this.ledgerIdByte = buffer.array();
+
+        if (this.exist) {
+            DbLedgerStorageDataFormats.LedgerData ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(false).setMasterKey(ByteString.copyFrom(this.previousMasterKey)).build();
+            ledgerDataMap.put(ledgerIdByte, ledgerData.toByteArray());
+            super.setLedgerDataMap(ledgerDataMap);
+        }
+
+        this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), super.getKeyValueStorageFactory(), "fakePath", new NullStatsLogger());
+
+    }
+
     @Test
     public void setMasterKeyTest() throws Exception {
-        this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), this.fakeKeyValueStorageFactory, "fakePath", new NullStatsLogger());
         this.ledgerMetadataIndex.setMasterKey(this.ledgerId, this.insertingMasterKey);
         this.ledgerMetadataIndex.flush();
 
@@ -192,11 +138,10 @@ public class SetMasterKeyTest {
             expectedMasterKeyBytes = this.previousMasterKey;
         }
 
-
         Assert.assertEquals(expectedMasterKey, Arrays.toString(actualLedgerData.getMasterKey().toByteArray()));
 
         DbLedgerStorageDataFormats.LedgerData expectedLegerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(false).setMasterKey(ByteString.copyFrom(expectedMasterKeyBytes)).build();
-        verify(this.keyValueStorage).put(this.ledgerIdByte, expectedLegerData.toByteArray());
+        verify(super.getKeyValueStorage()).put(this.ledgerIdByte, expectedLegerData.toByteArray());
 
 
     }

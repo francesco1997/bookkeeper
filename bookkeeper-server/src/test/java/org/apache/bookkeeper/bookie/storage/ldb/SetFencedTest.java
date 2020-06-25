@@ -11,9 +11,6 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnit;
-import org.mockito.junit.MockitoRule;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -22,9 +19,7 @@ import java.util.*;
 import static org.mockito.Mockito.*;
 
 @RunWith(Parameterized.class)
-public class SetFencedTest {
-
-    private Map<byte[], byte[]> ledgerDataMap;
+public class SetFencedTest extends LedgerMetadataInitialization{
     private LedgerMetadataIndex ledgerMetadataIndex;
     private Long ledgerId;
     private boolean exist;
@@ -34,18 +29,11 @@ public class SetFencedTest {
     private DbLedgerStorageDataFormats.LedgerData ledgerData;
     private byte[] ledgerIdByte;
 
-    private FakeKeyValueStorageFactory fakeKeyValueStorageFactory;
-
-    @Mock
-    private KeyValueStorage keyValueStorage;
-
-    @Rule
-    public MockitoRule mockitoRule = MockitoJUnit.rule();
-
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
 
     public SetFencedTest(TestInput testInput) {
+        super(testInput.isExist());
         this.ledgerId = testInput.getLedgerId();
         this.exist = testInput.isExist();
         this.fenced = testInput.isFenced();
@@ -54,61 +42,6 @@ public class SetFencedTest {
         if (expectedException != null) {
             this.expectedException.expect(expectedException);
         }
-    }
-
-    private class FakeKeyValueStorageFactory implements KeyValueStorageFactory {
-        private KeyValueStorage keyValueStorage;
-
-        public FakeKeyValueStorageFactory(KeyValueStorage keyValueStorage) {
-            this.keyValueStorage = keyValueStorage;
-        }
-
-        @Override
-        public KeyValueStorage newKeyValueStorage(String path, DbConfigType dbConfigType, ServerConfiguration conf) throws IOException {
-            return this.keyValueStorage;
-        }
-    }
-
-    private class FakeClosableIterator<T> implements KeyValueStorage.CloseableIterator<T> {
-
-        private Iterator<T> iterator;
-
-        public FakeClosableIterator(Iterator<T> iterator) {
-            this.iterator = iterator;
-        }
-
-        @Override
-        public boolean hasNext() throws IOException {
-            return this.iterator.hasNext();
-        }
-
-        @Override
-        public T next() throws IOException {
-            return this.iterator.next();
-        }
-
-        @Override
-        public void close() throws IOException {
-
-        }
-    }
-
-    @Before
-    public void configureMock() throws IOException {
-        this.fakeKeyValueStorageFactory = new FakeKeyValueStorageFactory(this.keyValueStorage);
-        this.ledgerDataMap = new HashMap<>();
-
-        if (this.exist) {
-            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(this.fenced).setMasterKey(ByteString.EMPTY).build();
-            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-            buffer.putLong(this.ledgerId);
-            this.ledgerIdByte = buffer.array();
-            this.ledgerDataMap.put(ledgerIdByte, ledgerData.toByteArray());
-        }
-
-        FakeClosableIterator<Map.Entry<byte[], byte[]>> fakeClosableIterator = new FakeClosableIterator<>(ledgerDataMap.entrySet().iterator());
-        when(keyValueStorage.iterator()).thenReturn(fakeClosableIterator);
-
     }
 
     @Parameterized.Parameters
@@ -165,9 +98,20 @@ public class SetFencedTest {
         }
     }
 
-    @Test
-    public void setFencedTest() throws Exception {
-        this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), this.fakeKeyValueStorageFactory, "fakePath", new NullStatsLogger());
+    @Before
+    public void setup() throws IOException {
+
+        if (this.exist) {
+            Map<byte[], byte[]> ledgerDataMap = new HashMap<>();
+            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(this.fenced).setMasterKey(ByteString.EMPTY).build();
+            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+            buffer.putLong(this.ledgerId);
+            this.ledgerIdByte = buffer.array();
+            ledgerDataMap.put(ledgerIdByte, ledgerData.toByteArray());
+            super.setLedgerDataMap(ledgerDataMap);
+        }
+
+        this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), super.getKeyValueStorageFactory(), "fakePath", new NullStatsLogger());
 
         if (this.concurrency) {
             this.ledgerMetadataIndex = spy(this.ledgerMetadataIndex);
@@ -178,6 +122,10 @@ public class SetFencedTest {
             });
         }
 
+    }
+
+    @Test
+    public void setFencedTest() throws Exception {
         boolean returnValue = this.ledgerMetadataIndex.setFenced(this.ledgerId);
 
         this.ledgerMetadataIndex.flush();
@@ -192,11 +140,9 @@ public class SetFencedTest {
 
         if (returnValue) {
             DbLedgerStorageDataFormats.LedgerData expectedLedgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(true).setMasterKey(ByteString.EMPTY).build();
-            verify(this.keyValueStorage).put(this.ledgerIdByte, expectedLedgerData.toByteArray());
+            verify(super.getKeyValueStorage()).put(this.ledgerIdByte, expectedLedgerData.toByteArray());
         } else {
-            verify(this.keyValueStorage, never()).put(any(), any());
+            verify(super.getKeyValueStorage(), never()).put(any(), any());
         }
-
-
     }
 }

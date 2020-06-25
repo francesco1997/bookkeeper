@@ -11,20 +11,14 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
-import org.mockito.Mock;
-import org.mockito.junit.MockitoJUnit;
-import org.mockito.junit.MockitoRule;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import static org.mockito.Mockito.when;
-
 @RunWith(Parameterized.class)
-public class GetLedgerMetadataTest {
+public class GetLedgerMetadataTest extends LedgerMetadataInitialization{
 
-    private Map<byte[], byte[]> ledgerDataMap;
     private LedgerMetadataIndex ledgerMetadataIndex;
     private Long ledgerId;
     private boolean exist;
@@ -33,18 +27,11 @@ public class GetLedgerMetadataTest {
     private DbLedgerStorageDataFormats.LedgerData ledgerData;
     private byte[] ledgerIdByte;
 
-    private FakeKeyValueStorageFactory fakeKeyValueStorageFactory;
-
-    @Mock
-    private KeyValueStorage keyValueStorage;
-
-    @Rule
-    public MockitoRule mockitoRule = MockitoJUnit.rule();
-
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
 
     public GetLedgerMetadataTest(TestInput testInput) {
+        super(testInput.isExist());
         this.ledgerId = testInput.getLedgerId();
         this.exist = testInput.isExist();
         this.ledgerInDb = testInput.isLedgerInDb();
@@ -54,61 +41,6 @@ public class GetLedgerMetadataTest {
             this.expectedException.expect(expectedException);
         }
     }
-
-    private class FakeKeyValueStorageFactory implements KeyValueStorageFactory {
-        private KeyValueStorage keyValueStorage;
-
-        public FakeKeyValueStorageFactory(KeyValueStorage keyValueStorage) {
-            this.keyValueStorage = keyValueStorage;
-        }
-
-        @Override
-        public KeyValueStorage newKeyValueStorage(String path, DbConfigType dbConfigType, ServerConfiguration conf) throws IOException {
-            return this.keyValueStorage;
-        }
-    }
-
-    private class FakeClosableIterator<T> implements KeyValueStorage.CloseableIterator<T> {
-
-        private Iterator<T> iterator;
-
-        public FakeClosableIterator(Iterator<T> iterator) {
-            this.iterator = iterator;
-        }
-
-        @Override
-        public boolean hasNext() throws IOException {
-            return this.iterator.hasNext();
-        }
-
-        @Override
-        public T next() throws IOException {
-            return this.iterator.next();
-        }
-
-        @Override
-        public void close() throws IOException {
-
-        }
-    }
-
-    @Before
-    public void configureMock() throws IOException {
-        this.fakeKeyValueStorageFactory = new FakeKeyValueStorageFactory(this.keyValueStorage);
-        this.ledgerDataMap = new HashMap<>();
-
-        if (this.exist && this.ledgerInDb) {
-            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(true).setMasterKey(ByteString.EMPTY).build();
-            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-            buffer.putLong(this.ledgerId);
-            this.ledgerIdByte = buffer.array();
-            this.ledgerDataMap.put(ledgerIdByte, ledgerData.toByteArray());
-        }
-
-        FakeClosableIterator<Map.Entry<byte[], byte[]>> fakeClosableIterator = new FakeClosableIterator<>(ledgerDataMap.entrySet().iterator());
-        when(keyValueStorage.iterator()).thenReturn(fakeClosableIterator);
-    }
-
 
     @Parameterized.Parameters
     public static Collection<TestInput> getTestParameters() {
@@ -120,7 +52,7 @@ public class GetLedgerMetadataTest {
             ledgerInDb: {true}, {false}
          */
         inputs.add(new TestInput((long) -1, false, false, false, Bookie.NoLedgerException.class));
-        inputs.add(new TestInput(0L, true, false, true,null));
+        inputs.add(new TestInput(0L, true, false, true,Bookie.NoLedgerException.class));
         inputs.add(new TestInput(1L, true, true, false,null));
 
         return inputs;
@@ -137,6 +69,7 @@ public class GetLedgerMetadataTest {
         public TestInput(Long ledgerId, boolean exist, boolean ledgerInDb, boolean deleted, Class<? extends Exception> expectedException) {
             this.ledgerId = ledgerId;
             this.exist = exist;
+            this.deleted = deleted;
             this.ledgerInDb = ledgerInDb;
             this.expectedException = expectedException;
 
@@ -163,11 +96,23 @@ public class GetLedgerMetadataTest {
         }
     }
 
+    @Before
+    public void setup() throws IOException {
+        Map<byte[], byte[]> ledgerDataMap = new HashMap<>();
+        if (this.exist && this.ledgerInDb) {
+            this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(true).setMasterKey(ByteString.EMPTY).build();
+            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+            buffer.putLong(this.ledgerId);
+            this.ledgerIdByte = buffer.array();
+            ledgerDataMap.put(ledgerIdByte, ledgerData.toByteArray());
+            super.setLedgerDataMap(ledgerDataMap);
+        }
+
+        this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), super.getKeyValueStorageFactory(), "fakePath", new NullStatsLogger());
+    }
+
     @Test
     public void getTest() throws Exception {
-        this.ledgerMetadataIndex = new LedgerMetadataIndex(new ServerConfiguration(), this.fakeKeyValueStorageFactory, "fakePath", new NullStatsLogger());
-
-
         try {
             if (this.exist && !this.ledgerInDb) {
                 this.ledgerData = DbLedgerStorageDataFormats.LedgerData.newBuilder().setExists(true).setFenced(true).setMasterKey(ByteString.EMPTY).build();
