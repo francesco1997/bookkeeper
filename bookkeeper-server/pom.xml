@@ -315,6 +315,30 @@
         </plugins>
       </build>
     </profile>
+    <profile>
+      <id>data-flow-test</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <argLine>
+                -javaagent:${ba-dua-dir}/ba-dua-agent-rt-0.4.1-SNAPSHOT-all.jar
+                -Xbootclasspath/p:${ba-dua-dir}/ba-dua-agent-rt-0.4.1-SNAPSHOT-all.jar
+              </argLine>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
   </profiles>
   <properties>
     <sonar.coverage.jacoco.xmlReportPaths>${basedir}/../${aggregate.report.dir}</sonar.coverage.jacoco.xmlReportPaths>
