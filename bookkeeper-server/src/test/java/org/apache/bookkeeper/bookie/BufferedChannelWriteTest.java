@@ -70,6 +70,7 @@ public class BufferedChannelWriteTest {
         inputs.add(new TestInput(false, 0, 0, 0L, IllegalArgumentException.class));
         inputs.add(new TestInput(false, 0, 1, 0L,null));
         inputs.add(new TestInput(false, 0, -1, 0L,IllegalArgumentException.class));
+        inputs.add(new TestInput(false, 10, 8, -1L, null));
 
         return inputs;
     }
@@ -205,6 +206,9 @@ public class BufferedChannelWriteTest {
 
         expectedBytes = Arrays.copyOfRange(this.bytes, 0, numBytesInFileCh);
         Assert.assertEquals("Error", Arrays.toString(expectedBytes), Arrays.toString(bytesInFileCh));
+
+        // Check if postion value is right
+        Assert.assertEquals(this.writeBufSize + this.initialPos, this.bufferedChannel.position);
 
     }
 
