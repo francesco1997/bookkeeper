@@ -17,7 +17,7 @@
  */
 package org.apache.bookkeeper.conf;
 
-import static com.google.common.base.Charsets.UTF_8;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.bookkeeper.util.BookKeeperConstants.FEATURE_DISABLE_ENSEMBLE_CHANGE;
 
 import io.netty.buffer.ByteBuf;
@@ -137,6 +137,7 @@ public class ClientConfiguration extends AbstractConfiguration<ClientConfigurati
     protected static final String BOOKIE_HEALTH_CHECK_INTERVAL_SECONDS = "bookieHealthCheckIntervalSeconds";
     protected static final String BOOKIE_ERROR_THRESHOLD_PER_INTERVAL = "bookieErrorThresholdPerInterval";
     protected static final String BOOKIE_QUARANTINE_TIME_SECONDS = "bookieQuarantineTimeSeconds";
+    protected static final String BOOKIE_QUARANTINE_RATIO = "bookieQuarantineRatio";
 
     // Bookie info poll interval
     protected static final String DISK_WEIGHT_BASED_PLACEMENT_ENABLED = "diskWeightBasedPlacementEnabled";
@@ -146,6 +147,7 @@ public class ClientConfiguration extends AbstractConfiguration<ClientConfigurati
         "bookieMaxMultipleForWeightBasedPlacement";
     protected static final String GET_BOOKIE_INFO_TIMEOUT_SECS = "getBookieInfoTimeoutSecs";
     protected static final String START_TLS_TIMEOUT_SECS = "startTLSTimeoutSecs";
+    protected static final String TLS_HOSTNAME_VERIFICATION_ENABLED = "tlsHostnameVerificationEnabled";
 
     // Number of Threads
     protected static final String NUM_WORKER_THREADS = "numWorkerThreads";
@@ -1400,6 +1402,26 @@ public class ClientConfiguration extends AbstractConfiguration<ClientConfigurati
     }
 
     /**
+     * Get the bookie quarantine ratio.
+     *
+     * @return
+     */
+    public double getBookieQuarantineRatio() {
+        return getDouble(BOOKIE_QUARANTINE_RATIO, 1.0);
+    }
+
+    /**
+     * set the bookie quarantine ratio. default is 1.0.
+     *
+     * @param ratio
+     * @return client configuration
+     */
+    public ClientConfiguration setBookieQuarantineRatio(double ratio) {
+        setProperty(BOOKIE_QUARANTINE_RATIO, ratio);
+        return this;
+    }
+
+    /**
      * {@inheritDoc}
      */
     @Override
@@ -1523,6 +1545,27 @@ public class ClientConfiguration extends AbstractConfiguration<ClientConfigurati
      */
     public ClientConfiguration setStartTLSTimeout(int timeoutSecs) {
         setProperty(START_TLS_TIMEOUT_SECS, timeoutSecs);
+        return this;
+    }
+
+    /**
+     * Whether hostname verification enabled?
+     *
+     * @return true if hostname verification enabled, otherwise false.
+     */
+    public boolean getHostnameVerificationEnabled() {
+        return getBoolean(TLS_HOSTNAME_VERIFICATION_ENABLED, false);
+    }
+
+    /**
+     * Enable/Disable hostname verification for tls connection.
+     *
+     * @param enabled
+     *            flag to enable/disable tls hostname verification.
+     * @return client configuration.
+     */
+    public ClientConfiguration setHostnameVerificationEnabled(boolean enabled) {
+        setProperty(TLS_HOSTNAME_VERIFICATION_ENABLED, enabled);
         return this;
     }
 

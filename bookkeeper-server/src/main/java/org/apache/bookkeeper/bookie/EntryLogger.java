@@ -21,7 +21,7 @@
 
 package org.apache.bookkeeper.bookie;
 
-import static com.google.common.base.Charsets.UTF_8;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
@@ -1011,6 +1011,11 @@ public class EntryLogger {
                 // read the entry
 
                 data.clear();
+                if (entrySize < 0) {
+                    LOG.warn("bad read for ledger entry from entryLog {}@{} (entry size {})",
+                            entryLogId, pos, entrySize);
+                    return;
+                }
                 data.capacity(entrySize);
                 int rc = readFromLogChannel(entryLogId, bc, data, pos);
                 if (rc != entrySize) {
@@ -1051,7 +1056,7 @@ public class EntryLogger {
 
         if (header.ledgersMapOffset == 0L) {
             // The index was not stored in the log file (possibly because the bookie crashed before flushing it)
-            throw new IOException("No ledgers map index found on entryLogId" + entryLogId);
+            throw new IOException("No ledgers map index found on entryLogId " + entryLogId);
         }
 
         if (LOG.isDebugEnabled()) {

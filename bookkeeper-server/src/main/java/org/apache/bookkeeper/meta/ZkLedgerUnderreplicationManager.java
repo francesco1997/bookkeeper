@@ -18,7 +18,7 @@
 
 package org.apache.bookkeeper.meta;
 
-import static com.google.common.base.Charsets.UTF_8;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.common.base.Joiner;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -586,6 +586,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
         while (true) {
             final CountDownLatch changedLatch = new CountDownLatch(1);
             Watcher w = new Watcher() {
+                @Override
                 public void process(WatchedEvent e) {
                     if (e.getType() == Watcher.Event.EventType.NodeChildrenChanged
                             || e.getType() == Watcher.Event.EventType.NodeDeleted
@@ -628,7 +629,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
             LOG.debug("releaseLedger(ledgerId={})", ledgerId);
         }
         try {
-            Lock l = heldLocks.remove(ledgerId);
+            Lock l = heldLocks.get(ledgerId);
             if (l != null) {
                 zkc.delete(l.getLockZNode(), -1);
             }
@@ -641,6 +642,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
             Thread.currentThread().interrupt();
             throw new ReplicationException.UnavailableException("Interrupted while connecting zookeeper", ie);
         }
+        heldLocks.remove(ledgerId);
     }
 
     @Override
@@ -741,6 +743,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
             LOG.debug("notifyLedgerReplicationEnabled()");
         }
         Watcher w = new Watcher() {
+            @Override
             public void process(WatchedEvent e) {
                 if (e.getType() == Watcher.Event.EventType.NodeDeleted) {
                     LOG.info("LedgerReplication is enabled externally through Zookeeper, "
@@ -857,6 +860,7 @@ public class ZkLedgerUnderreplicationManager implements LedgerUnderreplicationMa
     public void notifyLostBookieRecoveryDelayChanged(GenericCallback<Void> cb) throws UnavailableException {
         LOG.debug("notifyLostBookieRecoveryDelayChanged()");
         Watcher w = new Watcher() {
+            @Override
             public void process(WatchedEvent e) {
                 if (e.getType() == Watcher.Event.EventType.NodeDataChanged) {
                     cb.operationComplete(0, null);

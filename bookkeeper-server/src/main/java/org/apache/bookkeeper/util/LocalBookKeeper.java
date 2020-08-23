@@ -17,7 +17,7 @@
  */
 package org.apache.bookkeeper.util;
 
-import static com.google.common.base.Charsets.UTF_8;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.bookkeeper.util.BookKeeperConstants.AVAILABLE_NODE;
 import static org.apache.bookkeeper.util.BookKeeperConstants.READONLY;
 
@@ -34,19 +34,21 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import org.apache.bookkeeper.bookie.Bookie;
-import org.apache.bookkeeper.bookie.BookieException;
-import org.apache.bookkeeper.client.BKException;
+import org.apache.bookkeeper.common.component.ComponentInfoPublisher;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.discover.BookieServiceInfo;
+import org.apache.bookkeeper.discover.BookieServiceInfo.Endpoint;
 import org.apache.bookkeeper.meta.zk.ZKMetadataDriverBase;
 import org.apache.bookkeeper.proto.BookieServer;
-import org.apache.bookkeeper.replication.ReplicationException.CompatibilityException;
-import org.apache.bookkeeper.replication.ReplicationException.UnavailableException;
+import org.apache.bookkeeper.server.conf.BookieConfiguration;
+import org.apache.bookkeeper.server.service.BookieService;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShim;
 import org.apache.bookkeeper.shims.zk.ZooKeeperServerShimFactory;
-import org.apache.bookkeeper.tls.SecurityException;
+import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
-import org.apache.commons.configuration.ConfigurationException;
 import org.apache.commons.io.FileUtils;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
@@ -85,7 +87,8 @@ public class LocalBookKeeper {
         this.initialPort = initialPort;
         this.localBookiesConfigDir = new File(localBookiesConfigDirName);
         this.baseConf = baseConf;
-        LOG.info("Running {} bookie(s) on zkServer {}.", this.numberOfBookies);
+        LOG.info("Running {} bookie(s) on zk ensemble = '{}:{}'.", this.numberOfBookies,
+                zooKeeperDefaultHost, zooKeeperDefaultPort);
     }
 
     private static String zooKeeperDefaultHost = "127.0.0.1";
@@ -164,39 +167,20 @@ public class LocalBookKeeper {
     }
 
     private List<File> runBookies(String dirSuffix)
-            throws IOException, KeeperException, InterruptedException, BookieException,
-            UnavailableException, CompatibilityException, SecurityException, BKException,
-            ConfigurationException {
+            throws Exception {
         List<File> tempDirs = new ArrayList<File>();
         try {
             runBookies(tempDirs, dirSuffix);
             return tempDirs;
-        } catch (IOException ioe) {
+        } catch (Exception ioe) {
             cleanupDirectories(tempDirs);
             throw ioe;
-        } catch (KeeperException ke) {
-            cleanupDirectories(tempDirs);
-            throw ke;
-        } catch (InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            cleanupDirectories(tempDirs);
-            throw ie;
-        } catch (BookieException be) {
-            cleanupDirectories(tempDirs);
-            throw be;
-        } catch (UnavailableException ue) {
-            cleanupDirectories(tempDirs);
-            throw ue;
-        } catch (CompatibilityException ce) {
-            cleanupDirectories(tempDirs);
-            throw ce;
         }
     }
 
     @SuppressWarnings("deprecation")
     private void runBookies(List<File> tempDirs, String dirSuffix)
-            throws IOException, KeeperException, InterruptedException, BookieException, UnavailableException,
-            CompatibilityException, SecurityException, BKException, ConfigurationException {
+            throws Exception {
         LOG.info("Starting Bookie(s)");
         // Create Bookie Servers (B1, B2, B3)
 
@@ -255,10 +239,11 @@ public class LocalBookKeeper {
 
             // If the caller specified ephemeral ports then use ephemeral ports for all
             // the bookies else use numBookie ports starting at initialPort
+            PortManager.initPort(initialPort);
             if (0 == initialPort) {
                 bsConfs[i].setBookiePort(0);
             } else {
-                bsConfs[i].setBookiePort(initialPort + i);
+                bsConfs[i].setBookiePort(PortManager.nextFreePort());
             }
 
             if (null == baseConf.getMetadataServiceUriUnchecked()) {
@@ -272,8 +257,18 @@ public class LocalBookKeeper {
             String fileName = Bookie.getBookieAddress(bsConfs[i]).toString() + ".conf";
             serializeLocalBookieConfig(bsConfs[i], fileName);
 
-            bs[i] = new BookieServer(bsConfs[i]);
-            bs[i].start();
+            // Mimic BookKeeper Main
+            final ComponentInfoPublisher componentInfoPublisher = new ComponentInfoPublisher();
+            final Supplier<BookieServiceInfo> bookieServiceInfoProvider =
+                    () -> buildBookieServiceInfo(componentInfoPublisher);
+            BookieService bookieService = new BookieService(new BookieConfiguration(bsConfs[i]),
+                    NullStatsLogger.INSTANCE,
+                    bookieServiceInfoProvider
+            );
+            bs[i] = bookieService.getServer();
+            bookieService.publishInfo(componentInfoPublisher);
+            componentInfoPublisher.startupFinished();
+            bookieService.start();
         }
 
         /*
@@ -458,10 +453,10 @@ public class LocalBookKeeper {
                 String confFile = args[1];
                 try {
                     conf.loadConf(new File(confFile).toURI().toURL());
-                    LOG.info("Using configuration file " + confFile);
+                    LOG.info("Using configuration file {}", confFile);
                 } catch (Exception e) {
                     // load conf failed
-                    LOG.warn("Error loading configuration file " + confFile, e);
+                    LOG.warn("Error loading configuration file {}", confFile, e);
                 }
             }
 
@@ -479,7 +474,6 @@ public class LocalBookKeeper {
                     bookieDefaultInitialPort, false, "test", zkDataDir, localBookiesConfigDirName);
         } catch (Exception e) {
             LOG.error("Exiting LocalBookKeeper because of exception in main method", e);
-            e.printStackTrace();
             /*
              * This is needed because, some non-daemon thread (probably in ZK or
              * some other dependent service) is preventing the JVM from exiting, though
@@ -547,4 +541,25 @@ public class LocalBookKeeper {
         }
     }
 
+    /**
+     * Create the {@link BookieServiceInfo} starting from the published endpoints.
+     *
+     * @see ComponentInfoPublisher
+     * @param componentInfoPublisher the endpoint publisher
+     * @return the created bookie service info
+     */
+    private static BookieServiceInfo buildBookieServiceInfo(ComponentInfoPublisher componentInfoPublisher) {
+        List<Endpoint> endpoints = componentInfoPublisher.getEndpoints().values()
+                .stream().map(e -> {
+                    return new Endpoint(
+                            e.getId(),
+                            e.getPort(),
+                            e.getHost(),
+                            e.getProtocol(),
+                            e.getAuth(),
+                            e.getExtensions()
+                    );
+                }).collect(Collectors.toList());
+        return new BookieServiceInfo(componentInfoPublisher.getProperties(), endpoints);
+    }
 }

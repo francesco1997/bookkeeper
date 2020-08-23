@@ -52,6 +52,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
+import lombok.SneakyThrows;
 
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
@@ -62,8 +63,10 @@ import org.apache.bookkeeper.client.LedgerFragmentReplicator.SingleFragmentCallb
 import org.apache.bookkeeper.client.SyncCallbackUtils.SyncOpenCallback;
 import org.apache.bookkeeper.client.SyncCallbackUtils.SyncReadCallback;
 import org.apache.bookkeeper.client.api.LedgerMetadata;
+import org.apache.bookkeeper.common.concurrent.FutureUtils;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.discover.BookieServiceInfo;
 import org.apache.bookkeeper.discover.RegistrationClient.RegistrationListener;
 import org.apache.bookkeeper.meta.LedgerManager;
 import org.apache.bookkeeper.meta.LedgerManager.LedgerRangeIterator;
@@ -224,6 +227,13 @@ public class BookKeeperAdmin implements AutoCloseable {
     public Collection<BookieSocketAddress> getAllBookies()
             throws BKException {
         return bkc.bookieWatcher.getAllBookies();
+    }
+
+    @SneakyThrows
+    public BookieServiceInfo getBookieServiceInfo(String bookiedId)
+            throws BKException {
+        return FutureUtils.result(bkc.getMetadataClientDriver()
+                .getRegistrationClient().getBookieServiceInfo(bookiedId)).getValue();
     }
 
     /**
@@ -422,7 +432,7 @@ public class BookKeeperAdmin implements AutoCloseable {
                         close();
                         return false;
                     }
-                    LOG.error("Error reading entry {} from ledger {}", new Object[] { nextEntryId, ledgerId }, e);
+                    LOG.error("Error reading entry {} from ledger {}", nextEntryId, ledgerId, e);
                     close();
                     throw new RuntimeException(e);
                 }
@@ -1335,6 +1345,7 @@ public class BookKeeperAdmin implements AutoCloseable {
     throws IOException {
         final LedgerRangeIterator iterator = bkc.getLedgerManager().getLedgerRanges(0);
         return new Iterable<Long>() {
+            @Override
             public Iterator<Long> iterator() {
                 return new Iterator<Long>() {
                     Iterator<Long> currentRange = null;

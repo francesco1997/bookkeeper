@@ -542,6 +542,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements
             this.failedToResolveNetworkLocationCounter = failedToResolveNetworkLocationCounter;
         }
 
+        @Override
         public List<String> resolve(List<String> names) {
             if (names == null) {
                 return Collections.emptyList();
@@ -776,7 +777,7 @@ abstract class TopologyAwareEnsemblePlacementPolicy implements
     }
 
     protected String resolveNetworkLocation(BookieSocketAddress addr) {
-        return NetUtils.resolveNetworkLocation(dnsResolver, addr.getSocketAddress());
+        return NetUtils.resolveNetworkLocation(dnsResolver, addr);
     }
 
     protected Set<Node> convertBookiesToNodes(Collection<BookieSocketAddress> excludeBookies) {

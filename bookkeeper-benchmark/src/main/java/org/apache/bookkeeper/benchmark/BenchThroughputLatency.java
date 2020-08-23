@@ -19,7 +19,7 @@
  */
 package org.apache.bookkeeper.benchmark;
 
-import static com.google.common.base.Charsets.UTF_8;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.bookkeeper.util.BookKeeperConstants.AVAILABLE_NODE;
 
 import java.io.BufferedOutputStream;
@@ -134,6 +134,7 @@ public class BenchThroughputLatency implements AddCallback, Runnable {
         return duration;
     }
 
+    @Override
     public void run() {
         LOG.info("Running...");
         long start = previous = System.currentTimeMillis();
@@ -141,6 +142,7 @@ public class BenchThroughputLatency implements AddCallback, Runnable {
         int sent = 0;
 
         Thread reporter = new Thread() {
+                @Override
                 public void run() {
                     try {
                         while (true) {
@@ -290,6 +292,7 @@ public class BenchThroughputLatency implements AddCallback, Runnable {
             final long timeout = Long.parseLong(cmd.getOptionValue("timeout", "360")) * 1000;
 
             timeouter.schedule(new TimerTask() {
+                    @Override
                     public void run() {
                         System.err.println("Timing out benchmark after " + timeout + "ms");
                         System.exit(-1);
@@ -416,7 +419,8 @@ public class BenchThroughputLatency implements AddCallback, Runnable {
 
     private static double percentile(long[] latency, int percentile) {
         int size = latency.length;
-        int sampleSize = (size * percentile) / 100;
+        double percent = (double) percentile / 100;
+        int sampleSize = (int) (size * percent);
         long total = 0;
         int count = 0;
         for (int i = 0; i < sampleSize; i++) {

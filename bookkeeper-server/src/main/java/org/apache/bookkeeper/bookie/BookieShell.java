@@ -53,6 +53,7 @@ import org.apache.bookkeeper.tools.cli.commands.bookie.FormatCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.InitCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.LastMarkCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.LedgerCommand;
+import org.apache.bookkeeper.tools.cli.commands.bookie.ListActiveLedgersCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.ListFilesOnDiscCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.ListLedgersCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.LocalConsistencyCheckCommand;
@@ -63,7 +64,9 @@ import org.apache.bookkeeper.tools.cli.commands.bookie.ReadLogMetadataCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.RebuildDBLedgerLocationsIndexCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.RegenerateInterleavedStorageIndexFileCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookie.SanityTestCommand;
+import org.apache.bookkeeper.tools.cli.commands.bookie.UpdateBookieInLedgerCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookies.DecommissionCommand;
+import org.apache.bookkeeper.tools.cli.commands.bookies.EndpointInfoCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookies.InfoCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookies.InstanceIdCommand;
 import org.apache.bookkeeper.tools.cli.commands.bookies.ListBookiesCommand;
@@ -134,9 +137,12 @@ public class BookieShell implements Tool {
     static final String CMD_LISTFILESONDISC = "listfilesondisc";
     static final String CMD_UPDATECOOKIE = "updatecookie";
     static final String CMD_UPDATELEDGER = "updateledgers";
+    static final String CMD_UPDATE_BOOKIE_IN_LEDGER = "updateBookieInLedger";
     static final String CMD_DELETELEDGER = "deleteledger";
     static final String CMD_BOOKIEINFO = "bookieinfo";
+    static final String CMD_ACTIVE_LEDGERS_ON_ENTRY_LOG_FILE = "activeledgers";
     static final String CMD_DECOMMISSIONBOOKIE = "decommissionbookie";
+    static final String CMD_ENDPOINTINFO = "endpointinfo";
     static final String CMD_LOSTBOOKIERECOVERYDELAY = "lostbookierecoverydelay";
     static final String CMD_TRIGGERAUDIT = "triggeraudit";
     static final String CMD_CONVERT_TO_DB_STORAGE = "convert-to-db-storage";
@@ -210,6 +216,7 @@ public class BookieShell implements Tool {
             this.cmdName = cmdName;
         }
 
+        @Override
         public String description() {
             // we used the string returned by `getUsage` as description in showing the list of commands
             return getUsage();
@@ -701,6 +708,53 @@ public class BookieShell implements Tool {
         @Override
         String getUsage() {
             return "listledgers  [-meta] [-bookieid <bookieaddress>]";
+        }
+
+        @Override
+        Options getOptions() {
+            return lOpts;
+        }
+    }
+
+    /**
+     * List active ledgers on entry log file.
+     **/
+    class ListActiveLedgersCmd extends MyCommand {
+        Options lOpts = new Options();
+
+        ListActiveLedgersCmd() {
+            super(CMD_ACTIVE_LEDGERS_ON_ENTRY_LOG_FILE);
+            lOpts.addOption("l", "logId", true, "Entry log file id");
+            lOpts.addOption("t", "timeout", true, "Read timeout(ms)");
+        }
+
+        @Override
+        public int runCmd(CommandLine cmdLine) throws Exception {
+            final boolean hasTimeout = cmdLine.hasOption("t");
+            final boolean hasLogId = cmdLine.hasOption("l");
+            if (!hasLogId){
+                printUsage();
+                return -1;
+            }
+            final long logId = Long.parseLong(cmdLine.getOptionValue("l"));
+            ListActiveLedgersCommand.ActiveLedgerFlags flags = new ListActiveLedgersCommand.ActiveLedgerFlags();
+            flags.logId(logId);
+            if (hasTimeout){
+                flags.timeout(Long.parseLong(cmdLine.getOptionValue("t")));
+            }
+            ListActiveLedgersCommand cmd = new ListActiveLedgersCommand(ledgerIdFormatter);
+            cmd.apply(bkConf, flags);
+            return 0;
+        }
+
+        @Override
+        String getDescription() {
+            return "List all active ledgers on the entry log file.";
+        }
+
+        @Override
+        String getUsage() {
+            return "activeledgers  [-logId <entry log id>] [-timeout <timeout>] [-formatter <ledger id formatter>]";
         }
 
         @Override
@@ -1492,6 +1546,7 @@ public class BookieShell implements Tool {
             super(CMD_UPDATELEDGER);
             opts.addOption("b", "bookieId", true, "Bookie Id");
             opts.addOption("s", "updatespersec", true, "Number of ledgers updating per second (default: 5 per sec)");
+            opts.addOption("r", "maxOutstandingReads", true, "Max outstanding reads (default: 5 * updatespersec)");
             opts.addOption("l", "limit", true, "Maximum number of ledgers to update (default: no limit)");
             opts.addOption("v", "verbose", true, "Print status of the ledger updation (default: false)");
             opts.addOption("p", "printprogress", true,
@@ -1510,8 +1565,8 @@ public class BookieShell implements Tool {
 
         @Override
         String getUsage() {
-            return "updateledgers -bookieId <hostname|ip> [-updatespersec N] [-limit N] [-verbose true/false] "
-                    + "[-printprogress N]";
+            return "updateledgers -bookieId <hostname|ip> [-updatespersec N] [-maxOutstandingReads N] [-limit N] "
+                    + "[-verbose true/false] [-printprogress N]";
         }
 
         @Override
@@ -1532,6 +1587,7 @@ public class BookieShell implements Tool {
             }
             boolean useHostName = getOptionalValue(bookieId, "hostname");
             final int rate = getOptionIntValue(cmdLine, "updatespersec", 5);
+            final int maxOutstandingReads = getOptionIntValue(cmdLine, "maxOutstandingReads", (rate * 5));
             final int limit = getOptionIntValue(cmdLine, "limit", Integer.MIN_VALUE);
             final boolean verbose = getOptionBooleanValue(cmdLine, "verbose", false);
             final long printprogress;
@@ -1548,6 +1604,86 @@ public class BookieShell implements Tool {
             flags.printProgress(printprogress);
             flags.limit(limit);
             flags.updatePerSec(rate);
+            flags.maxOutstandingReads(maxOutstandingReads);
+            flags.verbose(verbose);
+
+            boolean result = cmd.apply(bkConf, flags);
+            return (result) ? 0 : -1;
+        }
+    }
+
+    /**
+     * Update bookie into ledger command.
+     */
+    class UpdateBookieInLedgerCmd extends MyCommand {
+        private final Options opts = new Options();
+
+        UpdateBookieInLedgerCmd() {
+            super(CMD_UPDATE_BOOKIE_IN_LEDGER);
+            opts.addOption("sb", "srcBookie", true, "Source bookie which needs to be replaced by destination bookie.");
+            opts.addOption("db", "destBookie", true, "Destination bookie which replaces source bookie.");
+            opts.addOption("s", "updatespersec", true, "Number of ledgers updating per second (default: 5 per sec)");
+            opts.addOption("r", "maxOutstandingReads", true, "Max outstanding reads (default: 5 * updatespersec)");
+            opts.addOption("l", "limit", true, "Maximum number of ledgers to update (default: no limit)");
+            opts.addOption("v", "verbose", true, "Print status of the ledger updation (default: false)");
+            opts.addOption("p", "printprogress", true,
+                    "Print messages on every configured seconds if verbose turned on (default: 10 secs)");
+        }
+
+        @Override
+        Options getOptions() {
+            return opts;
+        }
+
+        @Override
+        String getDescription() {
+            return "Replace bookie in ledger metadata. (useful when re-ip of host) "
+                    + "replace srcBookie with destBookie. (this may take a long time).";
+        }
+
+        @Override
+        String getUsage() {
+            return "updateBookieInLedger -srcBookie <source bookie> -destBookie <destination bookie> "
+                    + "[-updatespersec N] [-maxOutstandingReads N] [-limit N] [-verbose true/false] [-printprogress N]";
+        }
+
+        @Override
+        int runCmd(CommandLine cmdLine) throws Exception {
+            UpdateBookieInLedgerCommand cmd = new UpdateBookieInLedgerCommand();
+            UpdateBookieInLedgerCommand.UpdateBookieInLedgerFlags flags =
+                    new UpdateBookieInLedgerCommand.UpdateBookieInLedgerFlags();
+
+            final String srcBookie = cmdLine.getOptionValue("srcBookie");
+            final String destBookie = cmdLine.getOptionValue("destBookie");
+            if (StringUtils.isBlank(srcBookie) || StringUtils.isBlank(destBookie)) {
+                LOG.error("Invalid argument list (srcBookie and destBookie must be provided)!");
+                this.printUsage();
+                return -1;
+            }
+            if (StringUtils.equals(srcBookie, destBookie)) {
+                LOG.error("srcBookie and destBookie can't be the same.");
+                return -1;
+            }
+            final int rate = getOptionIntValue(cmdLine, "updatespersec", 5);
+            final int maxOutstandingReads = getOptionIntValue(cmdLine, "maxOutstandingReads", (rate * 5));
+            final int limit = getOptionIntValue(cmdLine, "limit", Integer.MIN_VALUE);
+            final boolean verbose = getOptionBooleanValue(cmdLine, "verbose", false);
+            final long printprogress;
+            if (!verbose) {
+                if (cmdLine.hasOption("printprogress")) {
+                    LOG.warn("Ignoring option 'printprogress', this is applicable when 'verbose' is true");
+                }
+                printprogress = Integer.MIN_VALUE;
+            } else {
+                // defaulting to 10 seconds
+                printprogress = getOptionLongValue(cmdLine, "printprogress", 10);
+            }
+            flags.srcBookie(srcBookie);
+            flags.destBookie(destBookie);
+            flags.printProgress(printprogress);
+            flags.limit(limit);
+            flags.updatePerSec(rate);
+            flags.maxOutstandingReads(maxOutstandingReads);
             flags.verbose(verbose);
 
             boolean result = cmd.apply(bkConf, flags);
@@ -1699,6 +1835,49 @@ public class BookieShell implements Tool {
             DecommissionCommand.DecommissionFlags flags = new DecommissionCommand.DecommissionFlags();
             final String remoteBookieidToDecommission = cmdLine.getOptionValue("bookieid");
             flags.remoteBookieIdToDecommission(remoteBookieidToDecommission);
+            boolean result = cmd.apply(bkConf, flags);
+            return (result) ? 0 : -1;
+        }
+    }
+
+    /**
+     * Command to retrieve remote bookie endpoint information.
+     */
+    class EndpointInfoCmd extends MyCommand {
+        Options lOpts = new Options();
+
+        EndpointInfoCmd() {
+            super(CMD_ENDPOINTINFO);
+            lOpts.addOption("b", "bookieid", true, "Bookie Id");
+        }
+
+        @Override
+        String getDescription() {
+            return "Get info about a remote bookie with a specific bookie address (bookieid)";
+        }
+
+        @Override
+        String getUsage() {
+            return CMD_ENDPOINTINFO + " [-bookieid <bookieaddress>]";
+        }
+
+        @Override
+        Options getOptions() {
+            return lOpts;
+        }
+
+        @Override
+        public int runCmd(CommandLine cmdLine) throws Exception {
+            EndpointInfoCommand cmd = new EndpointInfoCommand();
+            EndpointInfoCommand.EndpointInfoFlags flags = new EndpointInfoCommand.EndpointInfoFlags();
+            final String bookieId = cmdLine.getOptionValue("bookieid");
+            flags.bookie(bookieId);
+            if (StringUtils.isBlank(bookieId)) {
+                LOG.error("Invalid argument list!");
+                this.printUsage();
+                return -1;
+            }
+
             boolean result = cmd.apply(bkConf, flags);
             return (result) ? 0 : -1;
         }
@@ -1885,6 +2064,7 @@ public class BookieShell implements Tool {
         commands.put(CMD_LEDGER, new LedgerCmd());
         commands.put(CMD_READ_LEDGER_ENTRIES, new ReadLedgerEntriesCmd());
         commands.put(CMD_LISTLEDGERS, new ListLedgersCmd());
+        commands.put(CMD_ACTIVE_LEDGERS_ON_ENTRY_LOG_FILE, new ListActiveLedgersCmd());
         commands.put(CMD_LISTUNDERREPLICATED, new ListUnderreplicatedCmd());
         commands.put(CMD_WHOISAUDITOR, new WhoIsAuditorCmd());
         commands.put(CMD_WHATISINSTANCEID, new WhatIsInstanceId());
@@ -1901,9 +2081,11 @@ public class BookieShell implements Tool {
         commands.put(CMD_LISTFILESONDISC, new ListDiskFilesCmd());
         commands.put(CMD_UPDATECOOKIE, new UpdateCookieCmd());
         commands.put(CMD_UPDATELEDGER, new UpdateLedgerCmd());
+        commands.put(CMD_UPDATE_BOOKIE_IN_LEDGER, new UpdateBookieInLedgerCmd());
         commands.put(CMD_DELETELEDGER, new DeleteLedgerCmd());
         commands.put(CMD_BOOKIEINFO, new BookieInfoCmd());
         commands.put(CMD_DECOMMISSIONBOOKIE, new DecommissionBookieCmd());
+        commands.put(CMD_ENDPOINTINFO, new EndpointInfoCmd());
         commands.put(CMD_CONVERT_TO_DB_STORAGE, new ConvertToDbStorageCmd());
         commands.put(CMD_CONVERT_TO_INTERLEAVED_STORAGE, new ConvertToInterleavedStorageCmd());
         commands.put(CMD_REBUILD_DB_LEDGER_LOCATIONS_INDEX, new RebuildDbLedgerLocationsIndexCmd());

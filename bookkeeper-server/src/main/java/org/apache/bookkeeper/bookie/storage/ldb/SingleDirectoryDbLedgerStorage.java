@@ -475,7 +475,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
                     if (currentEntryLedgerId != orginalLedgerId) {
                         // Found an entry belonging to a different ledger, stopping read-ahead
-                        return;
+                        break;
                     }
 
                     // Insert entry in read cache
@@ -890,7 +890,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
         void process(long entryId, long entryLogId, long position);
     }
 
-    private static final Logger log = LoggerFactory.getLogger(DbLedgerStorage.class);
+    private static final Logger log = LoggerFactory.getLogger(SingleDirectoryDbLedgerStorage.class);
 
     @Override
     public OfLong getListOfEntriesOfLedger(long ledgerId) throws IOException {

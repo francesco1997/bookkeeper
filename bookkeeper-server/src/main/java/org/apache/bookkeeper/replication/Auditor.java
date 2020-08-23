@@ -133,6 +133,7 @@ public class Auditor implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(Auditor.class);
     private static final int MAX_CONCURRENT_REPLICAS_CHECK_LEDGER_REQUESTS = 100;
     private static final int REPLICAS_CHECK_TIMEOUT_IN_SECS = 120;
+    private static final BitSet EMPTY_BITSET = new BitSet();
     private final ServerConfiguration conf;
     private final BookKeeper bkc;
     private final boolean ownBkc;
@@ -495,6 +496,7 @@ public class Auditor implements AutoCloseable {
                 return;
             }
             executor.submit(safeRun(new Runnable() {
+                @Override
                 public void run() {
                     synchronized (Auditor.this) {
                         LOG.info("Shutting down Auditor's Executor");
@@ -513,6 +515,7 @@ public class Auditor implements AutoCloseable {
             return f;
         }
         return executor.submit(safeRun(new Runnable() {
+                @Override
                 @SuppressWarnings("unchecked")
                 public void run() {
                     try {
@@ -569,6 +572,7 @@ public class Auditor implements AutoCloseable {
                         if (auditTask == null) {
                             // if there is no scheduled audit, schedule one
                             auditTask = executor.schedule(safeRun(new Runnable() {
+                                @Override
                                 public void run() {
                                     startAudit(false);
                                     auditTask = null;
@@ -599,6 +603,7 @@ public class Auditor implements AutoCloseable {
         }
         return executor.submit(safeRun(new Runnable() {
             int lostBookieRecoveryDelay = -1;
+            @Override
             public void run() {
                 try {
                     waitIfLedgerReplicationDisabled();
@@ -628,6 +633,7 @@ public class Auditor implements AutoCloseable {
                         LOG.info("lostBookieRecoveryDelay has been set to {}, so rescheduling AuditTask accordingly",
                                 lostBookieRecoveryDelay);
                         auditTask = executor.schedule(safeRun(new Runnable() {
+                            @Override
                             public void run() {
                                 startAudit(false);
                                 auditTask = null;
@@ -730,6 +736,7 @@ public class Auditor implements AutoCloseable {
                     checkAllLedgersLastExecutedCTime, durationSinceLastExecutionInSecs, initialDelay, interval);
 
             executor.scheduleAtFixedRate(safeRun(new Runnable() {
+                @Override
                 public void run() {
                     try {
                         if (!ledgerUnderreplicationManager.isLedgerReplicationEnabled()) {
@@ -797,6 +804,7 @@ public class Auditor implements AutoCloseable {
                     placementPolicyCheckLastExecutedCTime, durationSinceLastExecutionInSecs, initialDelay, interval);
 
             executor.scheduleAtFixedRate(safeRun(new Runnable() {
+                @Override
                 public void run() {
                     try {
                         Stopwatch stopwatch = Stopwatch.createStarted();
@@ -918,6 +926,7 @@ public class Auditor implements AutoCloseable {
                 replicasCheckLastExecutedCTime, durationSinceLastExecutionInSecs, initialDelay, interval);
 
         executor.scheduleAtFixedRate(safeRun(new Runnable() {
+            @Override
             public void run() {
                 try {
                     Stopwatch stopwatch = Stopwatch.createStarted();
@@ -1141,6 +1150,7 @@ public class Auditor implements AutoCloseable {
             this.callback = callback;
         }
 
+        @Override
         public void operationComplete(int rc, Set<LedgerFragment> fragments) {
             if (rc == BKException.Code.OK) {
                 Set<BookieSocketAddress> bookies = Sets.newHashSet();
@@ -1480,7 +1490,8 @@ public class Auditor implements AutoCloseable {
                 return;
             }
 
-            if (metadata.getLastEntryId() == -1) {
+            final long lastEntryId = metadata.getLastEntryId();
+            if (lastEntryId == -1) {
                 LOG.debug("Ledger: {} is closed but it doesn't has any entries, so skipping the replicas check",
                         ledgerInRange);
                 mcbForThisLedgerRange.processResult(BKException.Code.OK, null, null);
@@ -1506,12 +1517,23 @@ public class Auditor implements AutoCloseable {
                 final Entry<Long, ? extends List<BookieSocketAddress>> segmentEnsemble = segments.get(segmentNum);
                 final List<BookieSocketAddress> ensembleOfSegment = segmentEnsemble.getValue();
                 final long startEntryIdOfSegment = segmentEnsemble.getKey();
-                final long lastEntryIdOfSegment = (segmentNum == (segments.size() - 1)) ? metadata.getLastEntryId()
+                final boolean lastSegment = (segmentNum == (segments.size() - 1));
+                final long lastEntryIdOfSegment = lastSegment ? lastEntryId
                         : segments.get(segmentNum + 1).getKey() - 1;
+                /*
+                 * Segment can be empty. If last segment is empty, then
+                 * startEntryIdOfSegment of it will be greater than lastEntryId
+                 * of the ledger. If the segment in middle is empty, then its
+                 * startEntry will be same as startEntry of the following
+                 * segment.
+                 */
+                final boolean emptySegment = lastSegment ? (startEntryIdOfSegment > lastEntryId)
+                        : (startEntryIdOfSegment == segments.get(segmentNum + 1).getKey());
                 for (int bookieIndex = 0; bookieIndex < ensembleOfSegment.size(); bookieIndex++) {
                     final BookieSocketAddress bookieInEnsemble = ensembleOfSegment.get(bookieIndex);
-                    final BitSet entriesStripedToThisBookie = distributionSchedule
-                            .getEntriesStripedToTheBookie(bookieIndex, startEntryIdOfSegment, lastEntryIdOfSegment);
+                    final BitSet entriesStripedToThisBookie = emptySegment ? EMPTY_BITSET
+                            : distributionSchedule.getEntriesStripedToTheBookie(bookieIndex, startEntryIdOfSegment,
+                                    lastEntryIdOfSegment);
                     if (entriesStripedToThisBookie.cardinality() == 0) {
                         /*
                          * if no entry is expected to contain in this bookie,
@@ -1958,6 +1980,7 @@ public class Auditor implements AutoCloseable {
     }
 
     private final Runnable bookieCheck = new Runnable() {
+            @Override
             public void run() {
                 if (auditTask == null) {
                     startAudit(true);

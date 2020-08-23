@@ -21,7 +21,7 @@
 
 package org.apache.bookkeeper.bookie;
 
-import static com.google.common.base.Charsets.UTF_8;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification.WATCHER_RECYCLER;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -309,7 +309,7 @@ class FileInfo extends Watchable<LastAddConfirmedUpdateNotification> {
             try {
                 readHeader();
             } catch (BufferUnderflowException buf) {
-                LOG.warn("Exception when reading header of {} : {}", lf, buf);
+                LOG.warn("Exception when reading header of {}.", lf, buf);
                 if (null != masterKey) {
                     LOG.warn("Attempting to write header of {} again.", lf);
                     writeHeader();
