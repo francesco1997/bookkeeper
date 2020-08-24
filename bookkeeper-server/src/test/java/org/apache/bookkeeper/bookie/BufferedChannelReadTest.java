@@ -67,6 +67,7 @@ public class BufferedChannelReadTest {
         inputs.add(new TestInput(false,5,1,0,1, null));
         inputs.add(new TestInput(false,5,6,0,1, IOException.class));
         inputs.add(new TestInput(false,5,1,3,6, null));
+        inputs.add(new TestInput(false,5,6,0,10, IOException.class));
 
         return inputs;
     }
